@@ -7,7 +7,10 @@ export type ProviderDetailRecord = Prisma.UserGetPayload<{ select: typeof provid
 export class ProviderRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async list(viewerId: string, input: ProviderQueryInput): Promise<{ data: ProviderSummaryRecord[]; total: number }> {
+  async list(
+    viewerId: string,
+    input: ProviderQueryInput,
+  ): Promise<{ data: ProviderSummaryRecord[]; total: number }> {
     const where: Prisma.UserWhereInput = {
       providerProfile: {
         is: {
@@ -58,7 +61,9 @@ export class ProviderRepository {
       ...(input.timeframe ? { timeframe: input.timeframe } : {}),
       ...(input.strategy ? { strategy: input.strategy } : {}),
       ...(input.source ? { source: input.source } : {}),
-      ...(input.status && ["PUBLISHED", "CLOSED"].includes(input.status) ? { status: input.status } : {}),
+      ...(input.status && ["PUBLISHED", "CLOSED"].includes(input.status)
+        ? { status: input.status }
+        : {}),
     };
     const [data, total] = await this.prisma.$transaction([
       this.prisma.signal.findMany({
@@ -75,15 +80,28 @@ export class ProviderRepository {
   }
 
   async analytics(providerId: string) {
-    const [published, outcomes] = await Promise.all([
+    const [published, verifiedPerformance, outcomes] = await Promise.all([
       this.prisma.signal.aggregate({
         where: { providerId, status: { in: ["PUBLISHED", "CLOSED"] } },
         _count: { _all: true },
-        _avg: { confidence: true, riskRewardRatio: true, pnlPercent: true },
+        _avg: { confidence: true, riskRewardRatio: true },
+      }),
+      this.prisma.signal.aggregate({
+        where: {
+          providerId,
+          status: "CLOSED",
+          outcomeSource: { in: ["MARKET_DATA", "ADMIN_OVERRIDE"] },
+        },
+        _count: { _all: true },
+        _avg: { pnlPercent: true },
       }),
       this.prisma.signal.groupBy({
         by: ["result"],
-        where: { providerId, status: "CLOSED" },
+        where: {
+          providerId,
+          status: "CLOSED",
+          outcomeSource: { in: ["MARKET_DATA", "ADMIN_OVERRIDE"] },
+        },
         orderBy: { result: "asc" },
         _count: { result: true },
       }),
@@ -93,14 +111,61 @@ export class ProviderRepository {
       totalSignals: published._count._all,
       avgConfidence: published._avg.confidence ?? 0,
       avgRiskReward: published._avg.riskRewardRatio ?? 0,
-      avgPnlPercent: published._avg.pnlPercent ?? 0,
-      outcomes: Object.fromEntries(outcomes.map((outcome) => [outcome.result, outcome._count.result])),
+      avgPnlPercent: verifiedPerformance._avg.pnlPercent ?? 0,
+      verifiedOutcomeCount: verifiedPerformance._count._all,
+      outcomes: Object.fromEntries(
+        outcomes.map((outcome) => [outcome.result, outcome._count.result]),
+      ),
     };
   }
 
   activeSubscriptionCount(subscriberId: string): Promise<number> {
     return this.prisma.subscription.count({
-      where: { subscriberId, status: "ACTIVE", currentPeriodEnd: { gt: new Date() } },
+      where: { subscriberId, status: "ACTIVE" },
+    });
+  }
+
+  async listProviderIds(): Promise<string[]> {
+    const providers = await this.prisma.providerProfile.findMany({ select: { userId: true } });
+    return providers.map((provider) => provider.userId);
+  }
+
+  async refreshMetrics(providerId: string) {
+    const [published, outcomes] = await Promise.all([
+      this.prisma.signal.aggregate({
+        where: { providerId, status: { in: ["PUBLISHED", "CLOSED"] } },
+        _count: { _all: true },
+        _avg: { confidence: true, riskRewardRatio: true },
+      }),
+      this.prisma.signal.groupBy({
+        by: ["result"],
+        where: {
+          providerId,
+          status: "CLOSED",
+          outcomeSource: { in: ["MARKET_DATA", "ADMIN_OVERRIDE"] },
+        },
+        _count: { result: true },
+      }),
+    ]);
+    const verifiedCount = outcomes.reduce((total, outcome) => total + outcome._count.result, 0);
+    const wins = outcomes.find((outcome) => outcome.result === "WIN")?._count.result ?? 0;
+
+    return this.prisma.providerProfile.upsert({
+      where: { userId: providerId },
+      update: {
+        totalSignals: published._count._all,
+        avgConfidence: published._avg.confidence ?? 0,
+        avgRiskReward: published._avg.riskRewardRatio ?? 0,
+        winRate: verifiedCount > 0 ? (wins / verifiedCount) * 100 : 0,
+      },
+      create: {
+        userId: providerId,
+        bio: "",
+        totalSignals: published._count._all,
+        avgConfidence: published._avg.confidence ?? 0,
+        avgRiskReward: published._avg.riskRewardRatio ?? 0,
+        winRate: verifiedCount > 0 ? (wins / verifiedCount) * 100 : 0,
+      },
     });
   }
 
@@ -150,7 +215,7 @@ const providerSummarySelect = {
   providerProfile: { select: providerProfileSummarySelect },
   _count: {
     select: {
-      subscribers: { where: { status: "ACTIVE", currentPeriodEnd: { gt: new Date() } } },
+      subscribers: { where: { status: "ACTIVE" } },
     },
   },
 } as const;
@@ -171,7 +236,7 @@ function providerSummaryForViewer(viewerId: string) {
   return {
     ...providerSummarySelect,
     subscribers: {
-      where: { subscriberId: viewerId, status: "ACTIVE", currentPeriodEnd: { gt: new Date() } },
+      where: { subscriberId: viewerId, status: "ACTIVE" },
       select: { id: true },
       take: 1,
     },
@@ -182,7 +247,7 @@ function providerDetailForViewer(viewerId: string) {
   return {
     ...providerDetailSelect,
     subscribers: {
-      where: { subscriberId: viewerId, status: "ACTIVE", currentPeriodEnd: { gt: new Date() } },
+      where: { subscriberId: viewerId, status: "ACTIVE" },
       select: { id: true },
       take: 1,
     },
@@ -209,6 +274,9 @@ const providerSignalSelect = {
   status: true,
   result: true,
   pnlPercent: true,
+  outcomeSource: true,
+  outcomePrice: true,
+  outcomeObservedAt: true,
   riskRewardRatio: true,
   algoDetectionId: true,
   publishedAt: true,

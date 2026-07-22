@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const baseURL = process.env.E2E_WEB_URL ?? "http://127.0.0.1:3000";
-const apiURL = process.env.E2E_API_URL ?? "http://127.0.0.1:4000";
+const baseURL = process.env.E2E_WEB_URL ?? "http://localhost:3000";
+const apiURL = process.env.E2E_API_URL ?? "http://localhost:4000";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -20,20 +20,23 @@ export default defineConfig({
   },
   ...(process.env.E2E_USE_RUNNING_SERVER
     ? {}
-    : { webServer: [
-        {
-          command: "pnpm --filter @alphasignal/api dev",
-          cwd: "../..",
-          url: `${apiURL}/health/live`,
-          timeout: 120_000,
-          reuseExistingServer: !process.env.CI,
-        },
-        {
-          command: "pnpm --filter @alphasignal/web dev",
-          cwd: "../..",
-          url: `${baseURL}/api/health`,
-          timeout: 120_000,
-          reuseExistingServer: !process.env.CI,
-        },
-      ] }),
+    : {
+        webServer: [
+          {
+            command:
+              "env PORT=4000 FRONTEND_URL=http://localhost:3000 pnpm --filter @alphasignal/api dev",
+            cwd: "../..",
+            url: `${apiURL}/health/live`,
+            timeout: 120_000,
+            reuseExistingServer: !process.env.CI,
+          },
+          {
+            command: "env PORT=3000 HOSTNAME=127.0.0.1 pnpm --filter @alphasignal/web dev",
+            cwd: "../..",
+            url: `${baseURL}/api/health`,
+            timeout: 120_000,
+            reuseExistingServer: !process.env.CI,
+          },
+        ],
+      }),
 });

@@ -13,6 +13,7 @@ describe("SignalService", () => {
     });
     const jobs = {
       enqueueNotification: vi.fn().mockResolvedValue(undefined),
+      enqueueAnalyticsRefresh: vi.fn().mockResolvedValue(undefined),
       enqueueAiAnalysis: vi.fn(),
       getAiAnalysisStatus: vi.fn(),
     };
@@ -41,6 +42,7 @@ describe("SignalService", () => {
     });
     const jobs = {
       enqueueNotification: vi.fn().mockResolvedValue(undefined),
+      enqueueAnalyticsRefresh: vi.fn().mockResolvedValue(undefined),
       enqueueAiAnalysis: vi.fn(),
       getAiAnalysisStatus: vi.fn(),
     };
@@ -62,7 +64,12 @@ describe("SignalService", () => {
   it("rejects trade levels that conflict with the stated direction", async () => {
     const service = new SignalService(
       repositoryMock(),
-      { enqueueNotification: vi.fn(), enqueueAiAnalysis: vi.fn(), getAiAnalysisStatus: vi.fn() },
+      {
+        enqueueNotification: vi.fn(),
+        enqueueAnalyticsRefresh: vi.fn(),
+        enqueueAiAnalysis: vi.fn(),
+        getAiAnalysisStatus: vi.fn(),
+      },
       { publishToUser: vi.fn(), publishToUsers: vi.fn() },
     );
 
@@ -72,20 +79,36 @@ describe("SignalService", () => {
   });
 
   it("allows a pending algo detection to be edited and published without duplicating its signal", async () => {
-    const pending = record({ status: "PENDING_APPROVAL", source: "ALGO", algoDetectionId: "detection-1" });
-    const published = record({ status: "PUBLISHED", source: "ALGO", algoDetectionId: "detection-1" });
+    const pending = record({
+      status: "PENDING_APPROVAL",
+      source: "ALGO",
+      algoDetectionId: "detection-1",
+    });
+    const published = record({
+      status: "PUBLISHED",
+      source: "ALGO",
+      algoDetectionId: "detection-1",
+    });
     const repository = repositoryMock({
       findOwned: vi.fn().mockResolvedValue(pending),
       updateEditable: vi.fn().mockResolvedValue(published),
       findActiveSubscriberIds: vi.fn().mockResolvedValue(["subscriber-1"]),
     });
-    const jobs = { enqueueNotification: vi.fn(), enqueueAiAnalysis: vi.fn(), getAiAnalysisStatus: vi.fn() };
+    const jobs = {
+      enqueueNotification: vi.fn(),
+      enqueueAnalyticsRefresh: vi.fn(),
+      enqueueAiAnalysis: vi.fn(),
+      getAiAnalysisStatus: vi.fn(),
+    };
     const realtime = { publishToUser: vi.fn(), publishToUsers: vi.fn() };
     const service = new SignalService(repository, jobs, realtime);
 
     await service.update(provider, pending.id, { entryPrice: 100.5, status: "PUBLISHED" });
 
-    expect(repository.updateEditable).toHaveBeenCalledWith(pending.id, { entryPrice: 100.5, status: "PUBLISHED" });
+    expect(repository.updateEditable).toHaveBeenCalledWith(pending.id, {
+      entryPrice: 100.5,
+      status: "PUBLISHED",
+    });
     expect(jobs.enqueueNotification).toHaveBeenCalledWith({
       event: "SIGNAL_PUBLISHED",
       signalId: published.id,
@@ -148,6 +171,9 @@ function record(overrides: Partial<SignalRecord>): SignalRecord {
     status: "DRAFT",
     result: "PENDING",
     pnlPercent: null,
+    outcomeSource: null,
+    outcomePrice: null,
+    outcomeObservedAt: null,
     riskRewardRatio: 2,
     algoDetectionId: null,
     publishedAt: null,
@@ -172,6 +198,8 @@ function repositoryMock(overrides: Partial<SignalRepository> = {}): SignalReposi
     create: vi.fn(),
     updateEditable: vi.fn(),
     close: vi.fn(),
+    closeFromMarket: vi.fn(),
+    listPublishedForLifecycle: vi.fn(),
     deleteDraft: vi.fn(),
     findActiveSubscriberIds: vi.fn().mockResolvedValue([]),
     ...overrides,

@@ -44,6 +44,7 @@ export const algoSignalStrategies = [
 export const signalSources = ["ALGO", "AI_HYBRID", "MANUAL"] as const;
 export const signalStatuses = ["DRAFT", "PENDING_APPROVAL", "PUBLISHED", "CLOSED"] as const;
 export const signalResults = ["PENDING", "WIN", "LOSS", "BREAKEVEN"] as const;
+export const signalOutcomeSources = ["MARKET_DATA", "PROVIDER_REPORTED", "ADMIN_OVERRIDE"] as const;
 export const subscriptionStatuses = ["ACTIVE", "CANCELLED", "PAST_DUE"] as const;
 export const notificationChannels = ["IN_APP", "EMAIL", "TELEGRAM"] as const;
 
@@ -58,5 +59,6 @@ export type AlgoSignalStrategy = (typeof algoSignalStrategies)[number];
 export type SignalSource = (typeof signalSources)[number];
 export type SignalStatus = (typeof signalStatuses)[number];
 export type SignalResult = (typeof signalResults)[number];
+export type SignalOutcomeSource = (typeof signalOutcomeSources)[number];
 export type SubscriptionStatus = (typeof subscriptionStatuses)[number];
 export type NotificationChannel = (typeof notificationChannels)[number];

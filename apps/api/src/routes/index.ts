@@ -28,6 +28,8 @@ import { AiAnalysisProcessor } from "../jobs/ai-analysis.processor.js";
 import { AlgoScanProcessor } from "../jobs/algo-scan.processor.js";
 import { JobManager } from "../jobs/job-manager.js";
 import { NotificationProcessor } from "../jobs/notification.processor.js";
+import { ProviderAnalyticsProcessor } from "../jobs/provider-analytics.processor.js";
+import { SignalLifecycleProcessor } from "../jobs/signal-lifecycle.processor.js";
 import { AuthMiddleware } from "../middleware/auth.middleware.js";
 import { RateLimitMiddleware } from "../middleware/rate-limit.middleware.js";
 import { AlgoRepository } from "../repositories/algo.repository.js";
@@ -118,8 +120,20 @@ export async function registerRoutes(app: FastifyInstance, config: AppConfig): P
   const algoRepository = new AlgoRepository(prisma);
   const algoService = new AlgoService(algoRepository, signalService, jobs, websocket);
   const algoController = new AlgoController(algoService, planEnforcement);
-  const scanner = new AlgoScanProcessor(algoRepository, marketDataService, signalService, algoService, app.log);
-  const aiAnalysis = new AiAnalysisProcessor(marketDataService, anthropic, redis, websocket, app.log);
+  const scanner = new AlgoScanProcessor(
+    algoRepository,
+    marketDataService,
+    signalService,
+    algoService,
+    app.log,
+  );
+  const aiAnalysis = new AiAnalysisProcessor(
+    marketDataService,
+    anthropic,
+    redis,
+    websocket,
+    app.log,
+  );
   const notificationRepository = new NotificationRepository(prisma);
   const notificationService = new NotificationService(
     config,
@@ -131,16 +145,32 @@ export async function registerRoutes(app: FastifyInstance, config: AppConfig): P
   );
   const notificationController = new NotificationController(notificationService, planEnforcement);
   const notifications = new NotificationProcessor(notificationService);
-  const telegramLinkService = new TelegramLinkService(config, redis, authRepository, telegramIntegration);
+  const telegramLinkService = new TelegramLinkService(
+    config,
+    redis,
+    authRepository,
+    telegramIntegration,
+  );
   const telegramController = new TelegramController(telegramLinkService, planEnforcement);
   const providerRepository = new ProviderRepository(prisma);
+  const analytics = new ProviderAnalyticsProcessor(providerRepository);
+  const signalLifecycle = new SignalLifecycleProcessor(
+    signalRepository,
+    marketDataService,
+    signalService,
+    app.log,
+  );
   const providerService = new ProviderService(providerRepository);
   const providerController = new ProviderController(providerService, planEnforcement);
   const watchlistRepository = new WatchlistRepository(prisma);
   const watchlistService = new WatchlistService(watchlistRepository);
   const watchlistController = new WatchlistController(watchlistService);
   const stripeIntegration = new StripeIntegration(config, app.log);
-  const billingService = new BillingService(config, new BillingRepository(prisma), stripeIntegration);
+  const billingService = new BillingService(
+    config,
+    new BillingRepository(prisma),
+    stripeIntegration,
+  );
   const billingController = new BillingController(billingService);
   const adminController = new AdminController(new AdminService(new AdminRepository(prisma)));
 
@@ -160,7 +190,7 @@ export async function registerRoutes(app: FastifyInstance, config: AppConfig): P
   return {
     async start() {
       await websocket.start();
-      await jobs.start({ scanner, aiAnalysis, notifications });
+      await jobs.start({ scanner, aiAnalysis, notifications, analytics, signalLifecycle });
     },
     async close() {
       await jobs.close();

@@ -69,7 +69,10 @@ export class AlpacaIntegration implements MarketProvider {
     return this.circuit.execute(async () => {
       await this.quota.trackAlpaca();
       const symbol = normalizeTicker(ticker);
-      const url = new URL(`/v2/stocks/${encodeURIComponent(symbol)}/bars`, this.config.ALPACA_DATA_URL);
+      const url = new URL(
+        `/v2/stocks/${encodeURIComponent(symbol)}/bars`,
+        this.config.ALPACA_DATA_URL,
+      );
       url.searchParams.set("timeframe", toAlpacaTimeframe(timeframe));
       url.searchParams.set("limit", String(limit));
       url.searchParams.set("feed", "iex");
@@ -123,7 +126,9 @@ export class AlpacaIntegration implements MarketProvider {
       return result
         .filter((asset) => asset.tradable !== false)
         .filter(
-          (asset) => asset.symbol.toUpperCase().includes(needle) || asset.name.toUpperCase().includes(needle),
+          (asset) =>
+            asset.symbol.toUpperCase().includes(needle) ||
+            asset.name.toUpperCase().includes(needle),
         )
         .slice(0, 20)
         .map((asset) => ({
@@ -141,12 +146,23 @@ export class AlpacaIntegration implements MarketProvider {
     const socket = new WebSocket(this.config.ALPACA_STREAM_URL, {
       headers: this.headers(),
     });
+    let disposed = false;
 
     socket.on("open", () => {
+      if (disposed) {
+        socket.close();
+        return;
+      }
       socket.send(JSON.stringify({ action: "subscribe", quotes: [symbol] }));
     });
     socket.on("message", (payload) => {
-      const parsed = streamMessageSchema.safeParse(JSON.parse(payload.toString()) as unknown);
+      let message: unknown;
+      try {
+        message = JSON.parse(payload.toString()) as unknown;
+      } catch {
+        return;
+      }
+      const parsed = streamMessageSchema.safeParse(message);
       if (!parsed.success) {
         return;
       }
@@ -163,8 +179,18 @@ export class AlpacaIntegration implements MarketProvider {
         }
       }
     });
+    // Upstream connection errors must not become uncaught EventEmitter errors.
+    // Market data polling and reconnecting can continue independently.
+    socket.on("error", () => undefined);
 
-    return () => socket.close();
+    return () => {
+      disposed = true;
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.close();
+      } else if (socket.readyState === WebSocket.CONNECTING) {
+        socket.terminate();
+      }
+    };
   }
 
   private headers(): Record<string, string> {

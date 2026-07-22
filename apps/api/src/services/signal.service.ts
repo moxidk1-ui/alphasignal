@@ -9,6 +9,7 @@ import type { AuthenticatedUser } from "../types/auth.js";
 import type { SignalRecord, SignalRepository } from "../repositories/signal.repository.js";
 import { badRequest, conflict, notFound } from "../utils/errors.js";
 import type { JobPublisher, RealtimePublisher } from "./phase5.ports.js";
+import type { MarketOutcome } from "./signal-outcome-evaluator.js";
 
 export class SignalService {
   constructor(
@@ -52,7 +53,11 @@ export class SignalService {
     return signal;
   }
 
-  async update(provider: AuthenticatedUser, id: string, input: UpdateSignalInput): Promise<SignalRecord> {
+  async update(
+    provider: AuthenticatedUser,
+    id: string,
+    input: UpdateSignalInput,
+  ): Promise<SignalRecord> {
     const current = await this.findOwned(provider.id, id);
     if (current.status !== "DRAFT" && current.status !== "PENDING_APPROVAL") {
       throw conflict("Only draft or pending approval signals can be edited.");
@@ -71,7 +76,9 @@ export class SignalService {
       throw badRequest("A draft can only transition to published status.");
     }
     if (current.status === "PENDING_APPROVAL" && input.status === "DRAFT") {
-      throw badRequest("A pending algo detection can be edited or published, but cannot become a draft.");
+      throw badRequest(
+        "A pending algo detection can be edited or published, but cannot become a draft.",
+      );
     }
 
     const signal = await this.repository.updateEditable(id, input);
@@ -82,20 +89,35 @@ export class SignalService {
     return signal;
   }
 
-  async close(provider: AuthenticatedUser, id: string, input: CloseSignalInput): Promise<SignalRecord> {
+  async close(
+    provider: AuthenticatedUser,
+    id: string,
+    input: CloseSignalInput,
+  ): Promise<SignalRecord> {
     const current = await this.findOwned(provider.id, id);
     if (current.status !== "PUBLISHED") {
       throw conflict("Only published signals can be closed.");
     }
 
-    const signal = await this.repository.close(id, input);
-    const subscriberIds = await this.repository.findActiveSubscriberIds(provider.id);
-    await Promise.all([
-      this.realtime.publishToUsers(subscriberIds, "signal:closed", signal),
-      this.jobs.enqueueNotification({ event: "SIGNAL_CLOSED", signalId: signal.id, recipientIds: subscriberIds }),
-    ]);
+    const outcomePrice = reportedOutcomePrice(
+      current.direction,
+      current.entryPrice,
+      input.pnlPercent,
+    );
+    const signal = await this.repository.close(id, input, outcomePrice);
+    await this.announceClosedSignal(signal);
 
     return signal;
+  }
+
+  async closeFromMarket(id: string, outcome: MarketOutcome): Promise<boolean> {
+    const signal = await this.repository.closeFromMarket(id, outcome);
+    if (!signal) {
+      return false;
+    }
+
+    await this.announceClosedSignal(signal);
+    return true;
   }
 
   async delete(provider: AuthenticatedUser, id: string): Promise<void> {
@@ -120,11 +142,31 @@ export class SignalService {
     return this.jobs.getAiAnalysisStatus(jobId, provider.id);
   }
 
-  async announcePublishedSignal<T extends { id: string; providerId: string }>(signal: T): Promise<void> {
+  async announcePublishedSignal<T extends { id: string; providerId: string }>(
+    signal: T,
+  ): Promise<void> {
     const subscriberIds = await this.repository.findActiveSubscriberIds(signal.providerId);
     await Promise.all([
       this.realtime.publishToUsers(subscriberIds, "signal:new", signal),
-      this.jobs.enqueueNotification({ event: "SIGNAL_PUBLISHED", signalId: signal.id, recipientIds: subscriberIds }),
+      this.jobs.enqueueNotification({
+        event: "SIGNAL_PUBLISHED",
+        signalId: signal.id,
+        recipientIds: subscriberIds,
+      }),
+      this.jobs.enqueueAnalyticsRefresh({ providerId: signal.providerId }),
+    ]);
+  }
+
+  private async announceClosedSignal(signal: SignalRecord): Promise<void> {
+    const subscriberIds = await this.repository.findActiveSubscriberIds(signal.providerId);
+    await Promise.all([
+      this.realtime.publishToUsers(subscriberIds, "signal:closed", signal),
+      this.jobs.enqueueNotification({
+        event: "SIGNAL_CLOSED",
+        signalId: signal.id,
+        recipientIds: subscriberIds,
+      }),
+      this.jobs.enqueueAnalyticsRefresh({ providerId: signal.providerId }),
     ]);
   }
 
@@ -136,6 +178,15 @@ export class SignalService {
 
     return signal;
   }
+}
+
+function reportedOutcomePrice(
+  direction: "LONG" | "SHORT",
+  entryPrice: number,
+  pnlPercent: number,
+): number {
+  const returnRatio = pnlPercent / 100;
+  return direction === "LONG" ? entryPrice * (1 + returnRatio) : entryPrice * (1 - returnRatio);
 }
 
 function validateTradeLevels(input: {

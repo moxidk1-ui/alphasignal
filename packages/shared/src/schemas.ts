@@ -7,6 +7,7 @@ import {
   plans,
   providerAlgoModes,
   signalResults,
+  signalOutcomeSources,
   signalSources,
   signalStatuses,
   signalStrategies,
@@ -26,6 +27,7 @@ export const algoSignalStrategySchema = z.enum(algoSignalStrategies);
 export const signalSourceSchema = z.enum(signalSources);
 export const signalStatusSchema = z.enum(signalStatuses);
 export const signalResultSchema = z.enum(signalResults);
+export const signalOutcomeSourceSchema = z.enum(signalOutcomeSources);
 export const subscriptionStatusSchema = z.enum(subscriptionStatuses);
 export const notificationChannelSchema = z.enum(notificationChannels);
 
@@ -129,7 +131,12 @@ export const marketSearchQuerySchema = z
 
 export const createSignalSchema = z
   .object({
-    ticker: z.string().trim().min(1).max(24).transform((value) => value.toUpperCase()),
+    ticker: z
+      .string()
+      .trim()
+      .min(1)
+      .max(24)
+      .transform((value) => value.toUpperCase()),
     market: marketSchema,
     direction: directionSchema,
     entryPrice: z.number().positive(),
@@ -157,7 +164,12 @@ export const updateSignalSchema = createSignalSchema
 
 export const analyzeSignalSchema = z
   .object({
-    ticker: z.string().trim().min(1).max(24).transform((value) => value.toUpperCase()),
+    ticker: z
+      .string()
+      .trim()
+      .min(1)
+      .max(24)
+      .transform((value) => value.toUpperCase()),
     market: marketSchema,
     timeframe: timeframeSchema,
   })
@@ -254,7 +266,12 @@ export const closeSignalSchema = z
 
 export const watchlistItemSchema = z
   .object({
-    ticker: z.string().trim().min(1).max(24).transform((value) => value.toUpperCase()),
+    ticker: z
+      .string()
+      .trim()
+      .min(1)
+      .max(24)
+      .transform((value) => value.toUpperCase()),
     market: marketSchema,
   })
   .strip();

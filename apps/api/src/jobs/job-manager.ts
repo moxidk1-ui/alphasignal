@@ -5,11 +5,14 @@ import {
   queueJobOptions,
   queueNames,
   scanSchedule,
+  signalLifecycleSchedule,
 } from "@alphasignal/queue";
 import type {
   AiAnalysisJobData,
   AlphaSignalQueues,
+  AnalyticsRefreshJobData,
   NotificationJobData,
+  SignalLifecycleJobData,
 } from "@alphasignal/queue";
 import { aiSignalRecommendationSchema } from "@alphasignal/shared";
 import type { FastifyBaseLogger } from "fastify";
@@ -20,11 +23,15 @@ import { notFound } from "../utils/errors.js";
 import type { AiAnalysisProcessor } from "./ai-analysis.processor.js";
 import type { AlgoScanProcessor } from "./algo-scan.processor.js";
 import type { NotificationProcessor } from "./notification.processor.js";
+import type { ProviderAnalyticsProcessor } from "./provider-analytics.processor.js";
+import type { SignalLifecycleProcessor } from "./signal-lifecycle.processor.js";
 
 interface ProcessorDependencies {
   scanner: AlgoScanProcessor;
   aiAnalysis: AiAnalysisProcessor;
   notifications: NotificationProcessor;
+  analytics: ProviderAnalyticsProcessor;
+  signalLifecycle: SignalLifecycleProcessor;
 }
 
 export class JobManager implements JobPublisher {
@@ -60,6 +67,15 @@ export class JobManager implements JobPublisher {
         );
       }
     }
+    await this.queues.signalLifecycle.upsertJobScheduler(
+      "signal-lifecycle:minute",
+      signalLifecycleSchedule,
+      {
+        name: "evaluate-published-signals",
+        data: { requestedAt: new Date().toISOString() },
+        opts: queueJobOptions.signalLifecycle,
+      },
+    );
 
     const scanWorker = new Worker(
       queueNames.algoScan,
@@ -77,20 +93,42 @@ export class JobManager implements JobPublisher {
       async (job: Job<NotificationJobData>) => dependencies.notifications.process(job.data),
       { connection: this.connection, concurrency: 10 },
     );
+    const lifecycleWorker = new Worker(
+      queueNames.signalLifecycle,
+      async (_job: Job<SignalLifecycleJobData>) => {
+        void _job;
+        return dependencies.signalLifecycle.process();
+      },
+      { connection: this.connection, concurrency: 1 },
+    );
+    const analyticsWorker = new Worker(
+      queueNames.analyticsRefresh,
+      async (job: Job<AnalyticsRefreshJobData>) =>
+        dependencies.analytics.process(job.data.providerId),
+      { connection: this.connection, concurrency: 3 },
+    );
     this.monitorWorker(scanWorker);
     this.monitorWorker(aiWorker);
     this.monitorWorker(notificationWorker);
+    this.monitorWorker(lifecycleWorker);
+    this.monitorWorker(analyticsWorker);
     this.workers.push(
       scanWorker as unknown as Worker<unknown, unknown, string>,
       aiWorker as unknown as Worker<unknown, unknown, string>,
       notificationWorker as unknown as Worker<unknown, unknown, string>,
+      lifecycleWorker as unknown as Worker<unknown, unknown, string>,
+      analyticsWorker as unknown as Worker<unknown, unknown, string>,
     );
     this.started = true;
     this.logger.info("Background job processors started");
   }
 
   async enqueueAiAnalysis(data: AiAnalysisJobData): Promise<{ id: string }> {
-    const job = await this.queues.aiAnalysis.add("analyze-signal", data, queueJobOptions.aiAnalysis);
+    const job = await this.queues.aiAnalysis.add(
+      "analyze-signal",
+      data,
+      queueJobOptions.aiAnalysis,
+    );
     if (!job.id) {
       throw new Error("AI analysis queue did not assign a job identifier.");
     }
@@ -123,7 +161,19 @@ export class JobManager implements JobPublisher {
   }
 
   async enqueueNotification(data: NotificationJobData): Promise<void> {
-    await this.queues.notifySubscribers.add("deliver-notification", data, queueJobOptions.notifySubscribers);
+    await this.queues.notifySubscribers.add(
+      "deliver-notification",
+      data,
+      queueJobOptions.notifySubscribers,
+    );
+  }
+
+  async enqueueAnalyticsRefresh(data: AnalyticsRefreshJobData): Promise<void> {
+    await this.queues.analyticsRefresh.add(
+      "refresh-provider-metrics",
+      data,
+      queueJobOptions.analyticsRefresh,
+    );
   }
 
   async close(): Promise<void> {
@@ -133,7 +183,10 @@ export class JobManager implements JobPublisher {
 
   private monitorWorker(worker: Worker): void {
     worker.on("failed", (job, error) => {
-      this.logger.error({ err: error, jobId: job?.id, queue: worker.name }, "Background job failed");
+      this.logger.error(
+        { err: error, jobId: job?.id, queue: worker.name },
+        "Background job failed",
+      );
     });
     worker.on("error", (error) => {
       this.logger.error({ err: error, queue: worker.name }, "Background worker error");

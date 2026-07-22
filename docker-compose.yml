@@ -46,8 +46,8 @@ services:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://alphasignal:alphasignal_dev_password@postgres:5432/alphasignal?schema=public}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-alphasignal}:${POSTGRES_PASSWORD:-alphasignal_dev_password}@postgres:5432/${POSTGRES_DB:-alphasignal}?schema=public
+      REDIS_URL: redis://redis:6379
       PORT: ${PORT:-4000}
     ports:
       - "${API_PORT:-4000}:4000"
@@ -69,6 +69,9 @@ services:
       - path: .env
         required: false
     environment:
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      API_INTERNAL_URL: http://api:4000
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
       NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:4000/ws}
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}

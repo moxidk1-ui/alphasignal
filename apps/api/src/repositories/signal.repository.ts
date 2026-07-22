@@ -7,11 +7,17 @@ import type {
 } from "@alphasignal/shared";
 
 export type SignalRecord = Prisma.SignalGetPayload<{ select: typeof signalSelect }>;
+export type LifecycleSignalRecord = Prisma.SignalGetPayload<{
+  select: typeof lifecycleSignalSelect;
+}>;
 
 export class SignalRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async listVisible(viewerId: string, input: SignalQueryInput): Promise<{ data: SignalRecord[]; total: number }> {
+  async listVisible(
+    viewerId: string,
+    input: SignalQueryInput,
+  ): Promise<{ data: SignalRecord[]; total: number }> {
     const filter: Prisma.SignalWhereInput = {
       OR: [{ status: "PUBLISHED" }, { status: "CLOSED" }, { providerId: viewerId }],
       ...(input.ticker ? { ticker: input.ticker.toUpperCase() } : {}),
@@ -54,7 +60,11 @@ export class SignalRepository {
     });
   }
 
-  create(providerId: string, input: CreateSignalInput, publishedAt: Date | null): Promise<SignalRecord> {
+  create(
+    providerId: string,
+    input: CreateSignalInput,
+    publishedAt: Date | null,
+  ): Promise<SignalRecord> {
     return this.prisma.signal.create({
       data: {
         providerId,
@@ -96,7 +106,9 @@ export class SignalRepository {
         ...(input.strategy !== undefined ? { strategy: input.strategy } : {}),
         ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
         ...(input.rationale !== undefined ? { rationale: input.rationale } : {}),
-        ...(input.keyLevels !== undefined ? { keyLevels: input.keyLevels as Prisma.InputJsonValue } : {}),
+        ...(input.keyLevels !== undefined
+          ? { keyLevels: input.keyLevels as Prisma.InputJsonValue }
+          : {}),
         ...(input.riskRewardRatio !== undefined ? { riskRewardRatio: input.riskRewardRatio } : {}),
         ...(input.status !== undefined
           ? { status: input.status, publishedAt: input.status === "PUBLISHED" ? new Date() : null }
@@ -106,16 +118,58 @@ export class SignalRepository {
     });
   }
 
-  close(id: string, input: CloseSignalInput): Promise<SignalRecord> {
+  close(id: string, input: CloseSignalInput, outcomePrice: number): Promise<SignalRecord> {
     return this.prisma.signal.update({
       where: { id },
       data: {
         status: "CLOSED",
         result: input.result,
         pnlPercent: input.pnlPercent,
+        outcomeSource: "PROVIDER_REPORTED",
+        outcomePrice,
+        outcomeObservedAt: new Date(),
         closedAt: new Date(),
       },
       select: signalSelect,
+    });
+  }
+
+  listPublishedForLifecycle(limit: number): Promise<LifecycleSignalRecord[]> {
+    return this.prisma.signal.findMany({
+      where: { status: "PUBLISHED", publishedAt: { not: null } },
+      select: lifecycleSignalSelect,
+      orderBy: { publishedAt: "asc" },
+      take: limit,
+    });
+  }
+
+  async closeFromMarket(
+    id: string,
+    outcome: {
+      result: "WIN" | "LOSS";
+      pnlPercent: number;
+      outcomePrice: number;
+      outcomeObservedAt: Date;
+    },
+  ): Promise<SignalRecord | null> {
+    return this.prisma.$transaction(async (transaction) => {
+      const updated = await transaction.signal.updateMany({
+        where: { id, status: "PUBLISHED" },
+        data: {
+          status: "CLOSED",
+          result: outcome.result,
+          pnlPercent: outcome.pnlPercent,
+          outcomeSource: "MARKET_DATA",
+          outcomePrice: outcome.outcomePrice,
+          outcomeObservedAt: outcome.outcomeObservedAt,
+          closedAt: outcome.outcomeObservedAt,
+        },
+      });
+      if (updated.count === 0) {
+        return null;
+      }
+
+      return transaction.signal.findUnique({ where: { id }, select: signalSelect });
     });
   }
 
@@ -128,7 +182,6 @@ export class SignalRepository {
       where: {
         providerId,
         status: "ACTIVE",
-        currentPeriodEnd: { gt: new Date() },
       },
       select: { subscriberId: true },
     });
@@ -157,6 +210,9 @@ const signalSelect = {
   status: true,
   result: true,
   pnlPercent: true,
+  outcomeSource: true,
+  outcomePrice: true,
+  outcomeObservedAt: true,
   riskRewardRatio: true,
   algoDetectionId: true,
   publishedAt: true,
@@ -176,4 +232,17 @@ const signalSelect = {
       },
     },
   },
+} as const;
+
+const lifecycleSignalSelect = {
+  id: true,
+  providerId: true,
+  ticker: true,
+  market: true,
+  direction: true,
+  entryPrice: true,
+  stopLoss: true,
+  takeProfit1: true,
+  timeframe: true,
+  publishedAt: true,
 } as const;

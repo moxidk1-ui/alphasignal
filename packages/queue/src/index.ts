@@ -6,6 +6,7 @@ export const queueNames = {
   algoScan: "algo-scan",
   aiAnalysis: "ai-analysis",
   notifySubscribers: "notify-subs",
+  signalLifecycle: "signal-lifecycle",
   analyticsRefresh: "analytics-refresh",
   marketWarmup: "market-warmup",
 } as const;
@@ -37,6 +38,10 @@ export interface AnalyticsRefreshJobData {
   providerId?: string;
 }
 
+export interface SignalLifecycleJobData {
+  requestedAt: string;
+}
+
 export interface MarketWarmupJobData {
   markets?: Market[];
 }
@@ -45,6 +50,7 @@ export interface AlphaSignalQueues {
   algoScan: Queue<AlgoScanJobData>;
   aiAnalysis: Queue<AiAnalysisJobData>;
   notifySubscribers: Queue<NotificationJobData>;
+  signalLifecycle: Queue<SignalLifecycleJobData>;
   analyticsRefresh: Queue<AnalyticsRefreshJobData>;
   marketWarmup: Queue<MarketWarmupJobData>;
 }
@@ -68,7 +74,24 @@ export const queueJobOptions = {
     removeOnComplete: 1_000,
     removeOnFail: 1_000,
   },
-} satisfies Record<"algoScan" | "aiAnalysis" | "notifySubscribers", JobsOptions>;
+  signalLifecycle: {
+    attempts: 2,
+    backoff: { type: "exponential", delay: 10_000 },
+    removeOnComplete: 500,
+    removeOnFail: 1_000,
+  },
+  analyticsRefresh: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 5_000 },
+    removeOnComplete: 1_000,
+    removeOnFail: 1_000,
+  },
+} satisfies Record<
+  "algoScan" | "aiAnalysis" | "notifySubscribers" | "signalLifecycle" | "analyticsRefresh",
+  JobsOptions
+>;
+
+export const signalLifecycleSchedule = { every: 60_000 } as const;
 
 export const scanSchedule: readonly { id: string; every: number; timeframes: Timeframe[] }[] = [
   { id: "m1-m5", every: 60_000, timeframes: ["M1", "M5"] },
@@ -101,7 +124,10 @@ export function createQueues(connection: ConnectionOptions): AlphaSignalQueues {
     algoScan: new Queue<AlgoScanJobData>(queueNames.algoScan, { connection }),
     aiAnalysis: new Queue<AiAnalysisJobData>(queueNames.aiAnalysis, { connection }),
     notifySubscribers: new Queue<NotificationJobData>(queueNames.notifySubscribers, { connection }),
-    analyticsRefresh: new Queue<AnalyticsRefreshJobData>(queueNames.analyticsRefresh, { connection }),
+    signalLifecycle: new Queue<SignalLifecycleJobData>(queueNames.signalLifecycle, { connection }),
+    analyticsRefresh: new Queue<AnalyticsRefreshJobData>(queueNames.analyticsRefresh, {
+      connection,
+    }),
     marketWarmup: new Queue<MarketWarmupJobData>(queueNames.marketWarmup, { connection }),
   };
 }

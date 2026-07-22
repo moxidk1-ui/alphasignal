@@ -10,7 +10,9 @@ test.beforeAll(async () => {
   if (process.env.NODE_ENV === "production") {
     throw new Error("E2E fixture writes are disabled in production.");
   }
-  const users = await prisma.user.findMany({ where: { email: { in: [providerEmail, subscriberEmail] } } });
+  const users = await prisma.user.findMany({
+    where: { email: { in: [providerEmail, subscriberEmail] } },
+  });
   if (users.length !== 2) {
     throw new Error("Seed accounts are required. Run `pnpm db:seed` before Playwright E2E tests.");
   }
@@ -20,7 +22,9 @@ test.afterAll(async () => {
   await prisma.$disconnect();
 });
 
-test("provider approval publishes an algo signal to a live subscriber and queues Telegram delivery", async ({ browser }) => {
+test("provider approval publishes an algo signal to a live subscriber and queues Telegram delivery", async ({
+  browser,
+}) => {
   const providerContext = await browser.newContext();
   const subscriberContext = await browser.newContext();
   const providerPage = await providerContext.newPage();
@@ -35,9 +39,17 @@ test("provider approval publishes an algo signal to a live subscriber and queues
   await prisma.subscription.upsert({
     where: { subscriberId_providerId: { subscriberId: subscriber.id, providerId: provider.id } },
     update: { status: "ACTIVE", currentPeriodEnd: futureDate(), plan: "PRO" },
-    create: { subscriberId: subscriber.id, providerId: provider.id, status: "ACTIVE", currentPeriodEnd: futureDate(), plan: "PRO" },
+    create: {
+      subscriberId: subscriber.id,
+      providerId: provider.id,
+      status: "ACTIVE",
+      currentPeriodEnd: futureDate(),
+      plan: "PRO",
+    },
   });
-  await prisma.notification.deleteMany({ where: { userId: subscriber.id, payload: { path: ["ticker"], equals: ticker } } });
+  await prisma.notification.deleteMany({
+    where: { userId: subscriber.id, payload: { path: ["ticker"], equals: ticker } },
+  });
   await prisma.signal.deleteMany({ where: { providerId: provider.id, ticker } });
   await prisma.algoDetection.deleteMany({ where: { ticker } });
 
@@ -76,7 +88,8 @@ test("provider approval publishes an algo signal to a live subscriber and queues
       takeProfit3: 5312.25,
       strategy: "ICT_LIQUIDITY_SWEEP",
       confidence: 86,
-      rationale: "Liquidity below the session range was swept and reclaimed with displacement. The next opposing level at 5312.25 defines the extended target.",
+      rationale:
+        "Liquidity below the session range was swept and reclaimed with displacement. The next opposing level at 5312.25 defines the extended target.",
       keyLevels: { support: [5283.75], resistance: [5312.25], liquidityLevels: [5285.25, 5312.25] },
       source: "ALGO",
       status: "PENDING_APPROVAL",
@@ -90,19 +103,29 @@ test("provider approval publishes an algo signal to a live subscriber and queues
 
   await providerPage.goto("/algo/review");
   const pending = providerPage.locator("article").filter({ hasText: ticker });
-  await expect(pending).toContainText("ICT Liquidity Sweep");
+  await expect(pending).toContainText(/ICT Liquidity Sweep/i);
   await pending.getByRole("button", { name: "Approve & Publish" }).click();
   await expect(pending).toHaveCount(0);
 
   const deliveredSignal = subscriberPage.locator("article").filter({ hasText: ticker });
   await expect(deliveredSignal).toContainText("ALGO");
   await deliveredSignal.getByRole("button").click();
-  await expect(subscriberPage.locator("#chart canvas")).toBeVisible();
+  await expect(subscriberPage.locator("#chart canvas").first()).toBeVisible();
 
-  await expect.poll(
-    () => prisma.notification.count({ where: { userId: subscriber.id, signalId: signal.id, channel: "TELEGRAM", sentAt: { not: null } } }),
-    { timeout: 12_000 },
-  ).toBe(1);
+  await expect
+    .poll(
+      () =>
+        prisma.notification.count({
+          where: {
+            userId: subscriber.id,
+            signalId: signal.id,
+            channel: "TELEGRAM",
+            sentAt: { not: null },
+          },
+        }),
+      { timeout: 12_000 },
+    )
+    .toBe(1);
 
   await Promise.all([providerContext.close(), subscriberContext.close()]);
 });
@@ -117,10 +140,18 @@ async function login(page: Page, email: string): Promise<void> {
 
 async function mockMarketData(page: Page): Promise<void> {
   await page.route("**/market/ohlcv**", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ candles: candles() }) }),
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ candles: candles() }),
+    }),
   );
   await page.route("**/market/quote**", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ quote: { ticker, market: "FUTURES", price: 5292, time: Date.now() } }) }),
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ quote: { ticker, market: "FUTURES", price: 5292, time: Date.now() } }),
+    }),
   );
 }
 
@@ -128,7 +159,14 @@ function candles() {
   const start = Math.floor(Date.now() / 1000) - 120 * 900;
   return Array.from({ length: 120 }, (_, index) => {
     const base = 5280 + index * 0.1;
-    return { time: start + index * 900, open: base, high: base + 3, low: base - 2, close: base + 1, volume: 1500 + index };
+    return {
+      time: start + index * 900,
+      open: base,
+      high: base + 3,
+      low: base - 2,
+      close: base + 1,
+      volume: 1500 + index,
+    };
   });
 }
 

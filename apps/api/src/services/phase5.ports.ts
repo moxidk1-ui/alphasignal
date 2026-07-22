@@ -1,5 +1,6 @@
 import type {
   AiAnalysisJobData,
+  AnalyticsRefreshJobData,
   NotificationJobData,
 } from "@alphasignal/queue";
 import type { AiSignalRecommendation } from "@alphasignal/shared";
@@ -11,10 +12,14 @@ export interface RealtimePublisher {
 
 export interface JobPublisher {
   enqueueAiAnalysis(data: AiAnalysisJobData): Promise<{ id: string }>;
-  getAiAnalysisStatus(jobId: string, requesterId: string): Promise<{
+  getAiAnalysisStatus(
+    jobId: string,
+    requesterId: string,
+  ): Promise<{
     status: "WAITING" | "ACTIVE" | "COMPLETED" | "FAILED";
     result?: AiSignalRecommendation;
     error?: string;
   }>;
   enqueueNotification(data: NotificationJobData): Promise<void>;
+  enqueueAnalyticsRefresh(data: AnalyticsRefreshJobData): Promise<void>;
 }

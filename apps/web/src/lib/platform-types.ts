@@ -9,6 +9,7 @@ import type {
   ProviderAlgoMode,
   Quote,
   SignalResult,
+  SignalOutcomeSource,
   SignalSource,
   SignalStatus,
   SignalStrategy,
@@ -37,6 +38,9 @@ export interface Signal {
   status: SignalStatus;
   result: SignalResult;
   pnlPercent: number | null;
+  outcomeSource: SignalOutcomeSource | null;
+  outcomePrice: number | null;
+  outcomeObservedAt: string | null;
   riskRewardRatio: number;
   algoDetectionId: string | null;
   publishedAt: string | null;
@@ -91,6 +95,7 @@ export interface ProviderAnalytics {
   avgConfidence: number;
   avgRiskReward: number;
   avgPnlPercent: number;
+  verifiedOutcomeCount: number;
   outcomes: Partial<Record<SignalResult, number>>;
 }
 

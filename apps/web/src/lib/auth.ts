@@ -30,6 +30,7 @@ interface GoogleProfile extends Profile {
 }
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const internalApiUrl = process.env.API_INTERNAL_URL ?? apiUrl;
 
 export const authOptions: AuthOptions = {
   pages: {
@@ -219,7 +220,8 @@ async function apiRequest<T>(
   path: string,
   options: { body: Record<string, unknown>; internal?: boolean },
 ): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`, {
+  const baseUrl = options.internal ? internalApiUrl : apiUrl;
+  const response = await fetch(`${baseUrl}${path}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",

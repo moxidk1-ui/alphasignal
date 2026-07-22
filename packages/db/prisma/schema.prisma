@@ -91,6 +91,12 @@ enum SignalResult {
   BREAKEVEN
 }
 
+enum SignalOutcomeSource {
+  MARKET_DATA
+  PROVIDER_REPORTED
+  ADMIN_OVERRIDE
+}
+
 enum SubscriptionStatus {
   ACTIVE
   CANCELLED
@@ -104,72 +110,72 @@ enum NotificationChannel {
 }
 
 model User {
-  id               String            @id @default(cuid())
-  email            String            @unique
-  passwordHash     String
-  name             String
-  avatarUrl        String?
-  role             UserRole          @default(FREE_USER)
-  plan             Plan              @default(FREE)
-  stripeCustomerId String?           @unique
-  stripeSubId      String?           @unique
-  emailVerified    Boolean           @default(false)
-  emailAlertsEnabled Boolean         @default(true)
-  telegramChatId   String?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  id                 String   @id @default(cuid())
+  email              String   @unique
+  passwordHash       String
+  name               String
+  avatarUrl          String?
+  role               UserRole @default(FREE_USER)
+  plan               Plan     @default(FREE)
+  stripeCustomerId   String?  @unique
+  stripeSubId        String?  @unique
+  emailVerified      Boolean  @default(false)
+  emailAlertsEnabled Boolean  @default(true)
+  telegramChatId     String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  providerProfile       ProviderProfile?
-  providedSignals       Signal[]            @relation("ProviderSignals")
-  subscriptions         Subscription[]      @relation("SubscriberSubscriptions")
-  subscribers           Subscription[]      @relation("ProviderSubscriptions")
-  notifications         Notification[]
-  watchlistItems        WatchlistItem[]
-  refreshTokens         RefreshToken[]
+  providerProfile ProviderProfile?
+  providedSignals Signal[]         @relation("ProviderSignals")
+  subscriptions   Subscription[]   @relation("SubscriberSubscriptions")
+  subscribers     Subscription[]   @relation("ProviderSubscriptions")
+  notifications   Notification[]
+  watchlistItems  WatchlistItem[]
+  refreshTokens   RefreshToken[]
 
   @@index([role, plan])
   @@index([createdAt])
 }
 
 model ProviderProfile {
-  id              String            @id @default(cuid())
-  userId          String            @unique
-  bio             String
-  website         String?
-  twitterHandle   String?
-  winRate         Float             @default(0)
-  totalSignals    Int               @default(0)
-  avgRiskReward   Float             @default(0)
-  avgConfidence   Float             @default(0)
-  isVerified      Boolean           @default(false)
-  algoMode        ProviderAlgoMode  @default(DISABLED)
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  id            String           @id @default(cuid())
+  userId        String           @unique
+  bio           String
+  website       String?
+  twitterHandle String?
+  winRate       Float            @default(0)
+  totalSignals  Int              @default(0)
+  avgRiskReward Float            @default(0)
+  avgConfidence Float            @default(0)
+  isVerified    Boolean          @default(false)
+  algoMode      ProviderAlgoMode @default(DISABLED)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
 
-  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  algoConfig      ProviderAlgoConfig?
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  algoConfig ProviderAlgoConfig?
 
   @@index([isVerified])
   @@index([algoMode])
 }
 
 model ProviderAlgoConfig {
-  id             String          @id @default(cuid())
-  providerId     String          @unique
-  patternTypes   String[]        @default([])
-  markets        String[]        @default([])
-  timeframes     String[]        @default([])
-  minConfidence  Int             @default(70)
-  autoPublish    Boolean         @default(false)
-  riskRewardMin  Float           @default(1.5)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  id            String   @id @default(cuid())
+  providerId    String   @unique
+  patternTypes  String[] @default([])
+  markets       String[] @default([])
+  timeframes    String[] @default([])
+  minConfidence Int      @default(70)
+  autoPublish   Boolean  @default(false)
+  riskRewardMin Float    @default(1.5)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  provider       ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  provider ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Cascade)
 }
 
 model Signal {
-  id                String          @id @default(cuid())
+  id                String               @id @default(cuid())
   providerId        String
   ticker            String
   market            Market
@@ -185,20 +191,23 @@ model Signal {
   rationale         String
   keyLevels         Json
   source            SignalSource
-  status            SignalStatus    @default(DRAFT)
-  result            SignalResult    @default(PENDING)
+  status            SignalStatus         @default(DRAFT)
+  result            SignalResult         @default(PENDING)
   pnlPercent        Float?
+  outcomeSource     SignalOutcomeSource?
+  outcomePrice      Float?
+  outcomeObservedAt DateTime?
   riskRewardRatio   Float
   algoDetectionId   String?
   publishedAt       DateTime?
   closedAt          DateTime?
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 
-  provider          User            @relation("ProviderSignals", fields: [providerId], references: [id], onDelete: Restrict)
-  algoDetection     AlgoDetection?  @relation("SignalAlgoDetection", fields: [algoDetectionId], references: [id], onDelete: SetNull)
-  detectionsLinked  AlgoDetection[] @relation("AlgoDetectionSignal")
-  notifications     Notification[]
+  provider         User            @relation("ProviderSignals", fields: [providerId], references: [id], onDelete: Restrict)
+  algoDetection    AlgoDetection?  @relation("SignalAlgoDetection", fields: [algoDetectionId], references: [id], onDelete: SetNull)
+  detectionsLinked AlgoDetection[] @relation("AlgoDetectionSignal")
+  notifications    Notification[]
 
   @@index([providerId, status, createdAt])
   @@index([ticker, market, timeframe])
@@ -208,39 +217,39 @@ model Signal {
 }
 
 model AlgoDetection {
-  id               String          @id @default(cuid())
-  ticker           String
-  market           Market
-  timeframe        Timeframe
-  strategy         SignalStrategy
-  direction        Direction
-  entry            Float
-  patternData      Json
-  confidence       Int
-  candleTimestamp  DateTime
-  processedAt      DateTime        @default(now())
-  signalId         String?         @unique
+  id              String         @id @default(cuid())
+  ticker          String
+  market          Market
+  timeframe       Timeframe
+  strategy        SignalStrategy
+  direction       Direction
+  entry           Float
+  patternData     Json
+  confidence      Int
+  candleTimestamp DateTime
+  processedAt     DateTime       @default(now())
+  signalId        String?        @unique
 
-  signal           Signal?         @relation("AlgoDetectionSignal", fields: [signalId], references: [id], onDelete: SetNull)
-  createdSignals   Signal[]        @relation("SignalAlgoDetection")
+  signal         Signal?  @relation("AlgoDetectionSignal", fields: [signalId], references: [id], onDelete: SetNull)
+  createdSignals Signal[] @relation("SignalAlgoDetection")
 
   @@index([ticker, market, timeframe, strategy, direction, processedAt])
   @@index([confidence])
 }
 
 model Subscription {
-  id                 String              @id @default(cuid())
-  subscriberId       String
-  providerId         String
-  stripeSubId        String?             @unique
-  plan               Plan
-  status             SubscriptionStatus  @default(ACTIVE)
-  currentPeriodEnd   DateTime
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  id               String             @id @default(cuid())
+  subscriberId     String
+  providerId       String
+  stripeSubId      String?            @unique
+  plan             Plan
+  status           SubscriptionStatus @default(ACTIVE)
+  currentPeriodEnd DateTime
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
 
-  subscriber         User                @relation("SubscriberSubscriptions", fields: [subscriberId], references: [id], onDelete: Cascade)
-  provider           User                @relation("ProviderSubscriptions", fields: [providerId], references: [id], onDelete: Cascade)
+  subscriber User @relation("SubscriberSubscriptions", fields: [subscriberId], references: [id], onDelete: Cascade)
+  provider   User @relation("ProviderSubscriptions", fields: [providerId], references: [id], onDelete: Cascade)
 
   @@unique([subscriberId, providerId])
   @@index([providerId, status])
@@ -248,56 +257,56 @@ model Subscription {
 }
 
 model Notification {
-  id          String                @id @default(cuid())
-  dedupeKey   String                @unique
-  userId      String
-  signalId    String?
-  channel     NotificationChannel
-  type        String
-  payload     Json
-  read        Boolean               @default(false)
-  sentAt      DateTime?
-  createdAt   DateTime              @default(now())
+  id        String              @id @default(cuid())
+  dedupeKey String              @unique
+  userId    String
+  signalId  String?
+  channel   NotificationChannel
+  type      String
+  payload   Json
+  read      Boolean             @default(false)
+  sentAt    DateTime?
+  createdAt DateTime            @default(now())
 
-  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  signal      Signal?               @relation(fields: [signalId], references: [id], onDelete: SetNull)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  signal Signal? @relation(fields: [signalId], references: [id], onDelete: SetNull)
 
   @@index([userId, read, createdAt])
   @@index([signalId])
 }
 
 model WatchlistItem {
-  id        String    @id @default(cuid())
-  userId    String
-  ticker    String
-  market    Market
-  addedAt   DateTime  @default(now())
+  id      String   @id @default(cuid())
+  userId  String
+  ticker  String
+  market  Market
+  addedAt DateTime @default(now())
 
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, ticker, market])
   @@index([ticker, market])
 }
 
 model ApiRateLimit {
-  id           String    @id @default(cuid())
-  key          String    @unique
-  windowStart  DateTime
-  count        Int       @default(0)
-  updatedAt    DateTime  @updatedAt
+  id          String   @id @default(cuid())
+  key         String   @unique
+  windowStart DateTime
+  count       Int      @default(0)
+  updatedAt   DateTime @updatedAt
 
   @@index([windowStart])
 }
 
 model RefreshToken {
-  id          String    @id @default(cuid())
-  userId      String
-  tokenHash   String    @unique
-  expiresAt   DateTime
-  revokedAt   DateTime?
-  createdAt   DateTime  @default(now())
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
 
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
   @@index([revokedAt])

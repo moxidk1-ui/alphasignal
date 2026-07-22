@@ -57,7 +57,7 @@ jobs:
 
   containers:
     name: Build ${{ matrix.service }} image
-    needs: quality
+    needs: [quality, e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -114,3 +114,97 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  e2e:
+    name: End-to-end tests
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: alphasignal
+          POSTGRES_USER: alphasignal
+          POSTGRES_PASSWORD: alphasignal_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U alphasignal -d alphasignal"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      CI: true
+      NODE_ENV: test
+      DATABASE_URL: postgresql://alphasignal:alphasignal_test_password@127.0.0.1:5432/alphasignal?schema=public
+      REDIS_URL: redis://127.0.0.1:6379
+      FRONTEND_URL: http://localhost:3000
+      NEXTAUTH_URL: http://localhost:3000
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      NEXT_PUBLIC_WS_URL: ws://localhost:4000/ws
+      NEXT_TELEMETRY_DISABLED: 1
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.3
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate test signing keys
+        shell: bash
+        run: |
+          cp .env.example .env
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/alphasignal-jwt-private.pem
+          openssl rsa -pubout -in /tmp/alphasignal-jwt-private.pem -out /tmp/alphasignal-jwt-public.pem
+          echo 'JWT_PRIVATE_KEY<<ALPHASIGNAL_PRIVATE_KEY' >> "$GITHUB_ENV"
+          cat /tmp/alphasignal-jwt-private.pem >> "$GITHUB_ENV"
+          echo 'ALPHASIGNAL_PRIVATE_KEY' >> "$GITHUB_ENV"
+          echo 'JWT_PUBLIC_KEY<<ALPHASIGNAL_PUBLIC_KEY' >> "$GITHUB_ENV"
+          cat /tmp/alphasignal-jwt-public.pem >> "$GITHUB_ENV"
+          echo 'ALPHASIGNAL_PUBLIC_KEY' >> "$GITHUB_ENV"
+
+      - name: Prepare database
+        run: |
+          pnpm db:generate
+          pnpm db:migrate
+          pnpm db:seed
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter @alphasignal/web exec playwright install --with-deps chromium
+
+      - name: Run critical journey
+        run: pnpm test:e2e
+
+      - name: Upload browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          if-no-files-found: ignore
+          retention-days: 7
