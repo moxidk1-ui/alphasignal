@@ -1,0 +1,40 @@
+{
+  "name": "@alphasignal/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./src/index.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prisma:generate": "dotenv -e ../../.env -- prisma generate --schema prisma/schema.prisma",
+    "prisma:migrate": "dotenv -e ../../.env -- prisma migrate deploy --schema prisma/schema.prisma",
+    "prisma:dev": "dotenv -e ../../.env -- prisma migrate dev --schema prisma/schema.prisma",
+    "prisma:seed": "dotenv -e ../../.env -- tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "5.22.0",
+    "bcryptjs": "2.4.3"
+  },
+  "devDependencies": {
+    "@alphasignal/config": "workspace:*",
+    "@types/bcryptjs": "2.4.6",
+    "dotenv-cli": "7.4.2",
+    "prisma": "5.22.0",
+    "tsx": "4.19.2"
+  },
+  "prisma": {
+    "schema": "prisma/schema.prisma",
+    "seed": "dotenv -e ../../.env -- tsx prisma/seed.ts"
+  }
+}
